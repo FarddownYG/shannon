@@ -1,0 +1,68 @@
+name: CyberGuard Shannon Scan
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'URL cible a scanner'
+        required: true
+        type: string
+      scan_type:
+        description: 'Type de scan (quick ou full)'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - quick
+          - full
+
+jobs:
+  shannon-pentest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout Shannon
+        uses: actions/checkout@v4
+
+      - name: Run Shannon Pentest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_MAX_OUTPUT_TOKENS: "64000"
+        run: |
+          echo "::group::Starting Shannon scan"
+          echo "Target: ${{ inputs.target_url }}"
+          echo "Type: ${{ inputs.scan_type }}"
+          ./shannon start URL=${{ inputs.target_url }}
+          echo "::endgroup::"
+
+          SCAN_DIR=$(ls -td audit-logs/*/ 2>/dev/null | head -1)
+          MAX_WAIT=5400
+          WAITED=0
+          while [ $WAITED -lt $MAX_WAIT ]; do
+            if [ -f "$SCAN_DIR/deliverables/comprehensive_security_assessment_report.md" ]; then
+              echo "Scan completed!"
+              break
+            fi
+            sleep 30
+            WAITED=$((WAITED + 30))
+            echo "Waiting... ($WAITED s)"
+          done
+
+      - name: Upload Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shannon-report
+          path: audit-logs/
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          SCAN_DIR=$(ls -td audit-logs/*/ 2>/dev/null | head -1)
+          if [ -f "$SCAN_DIR/deliverables/comprehensive_security_assessment_report.md" ]; then
+            echo "## Shannon Pentest Report" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            cat "$SCAN_DIR/deliverables/comprehensive_security_assessment_report.md" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## Scan did not produce a report" >> $GITHUB_STEP_SUMMARY
+          fi
