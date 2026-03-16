@@ -1,4 +1,5 @@
 name: CyberGuard Shannon Scan
+
 on:
   workflow_dispatch:
     inputs:
@@ -19,9 +20,42 @@ jobs:
   shannon-pentest:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+
     steps:
       - name: Checkout Shannon
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          echo "=== Installing dependencies ==="
+          if [ -f "package.json" ]; then
+            npm ci || npm install
+          fi
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          fi
+          echo "=== Checking shannon script ==="
+          ls -la shannon* 2>/dev/null || echo "No shannon script found"
+          file ./shannon 2>/dev/null || true
+
+      - name: Make shannon executable
+        run: chmod +x ./shannon
+
+      - name: Debug - Pre-scan checks
+        run: |
+          echo "=== Environment ==="
+          echo "Node: $(node --version 2>/dev/null || echo 'N/A')"
+          echo "Python: $(python3 --version 2>/dev/null || echo 'N/A')"
+          echo "API key set: ${{ secrets.ANTHROPIC_API_KEY != '' }}"
+          echo "=== shannon script (first 5 lines) ==="
+          head -5 ./shannon 2>/dev/null || echo "Cannot read"
+          echo "=== Repo root ==="
+          ls -la
 
       - name: Run Shannon Pentest
         env:
@@ -35,17 +69,29 @@ jobs:
           echo "::endgroup::"
 
           SCAN_DIR=$(ls -td audit-logs/*/ 2>/dev/null | head -1)
+          if [ -z "$SCAN_DIR" ]; then
+            echo "WARNING: No scan directory created yet"
+            mkdir -p audit-logs
+          fi
+
           MAX_WAIT=5400
           WAITED=0
           while [ $WAITED -lt $MAX_WAIT ]; do
+            SCAN_DIR=$(ls -td audit-logs/*/ 2>/dev/null | head -1)
             if [ -f "$SCAN_DIR/deliverables/comprehensive_security_assessment_report.md" ]; then
               echo "Scan completed!"
               break
             fi
             sleep 30
             WAITED=$((WAITED + 30))
-            echo "Waiting... ($WAITED s)"
+            echo "Waiting... ($WAITED/$MAX_WAIT s)"
           done
+
+      - name: Debug - Post-scan
+        if: always()
+        run: |
+          echo "=== audit-logs/ ==="
+          find audit-logs/ -type f 2>/dev/null | head -50 || echo "Empty"
 
       - name: Upload Report
         if: always()
@@ -53,6 +99,7 @@ jobs:
         with:
           name: shannon-report
           path: audit-logs/
+          if-no-files-found: warn
           retention-days: 30
 
       - name: Summary
