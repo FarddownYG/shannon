@@ -20,6 +20,10 @@ on:
         required: true
         default: 'cyberguard'
         type: string
+      target_repo_url:
+        description: 'URL GitHub du repo cible (pour white-box)'
+        required: true
+        type: string
 
 jobs:
   shannon-pentest:
@@ -40,12 +44,17 @@ jobs:
           if [ -f "package.json" ]; then
             npm ci || npm install
           fi
-          if [ -f "requirements.txt" ]; then
-            pip install -r requirements.txt
-          fi
 
       - name: Make shannon executable
         run: chmod +x ./shannon
+
+      - name: Clone target repository
+        run: |
+          mkdir -p ./repos
+          echo "Cloning ${{ inputs.target_repo_url }} into ./repos/${{ inputs.repo_name }}"
+          git clone ${{ inputs.target_repo_url }} ./repos/${{ inputs.repo_name }}
+          echo "=== Target repo contents ==="
+          ls -la ./repos/${{ inputs.repo_name }}/ | head -20
 
       - name: Debug - Pre-scan
         env:
@@ -53,6 +62,8 @@ jobs:
         run: |
           echo "Node: $(node --version)"
           echo "API key length: ${#ANTHROPIC_API_KEY} chars"
+          echo "Target repo: ./repos/${{ inputs.repo_name }}"
+          ls -la ./repos/
           echo "Command: ./shannon start URL=${{ inputs.target_url }} REPO=${{ inputs.repo_name }}"
 
       - name: Run Shannon Pentest
